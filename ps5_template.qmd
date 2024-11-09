@@ -117,8 +117,15 @@ print(df.head())
 ### 2. Crawling (PARTNER 1)
 
 ```{python}
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import time
 
-url = 'https://oig.hhs.gov/fraud/enforcement/'
+base_url = 'https://oig.hhs.gov'
+
+url = f'{base_url}/fraud/enforcement/'
+
 
 response = requests.get(url)
 soup = BeautifulSoup(response.text, 'html.parser')
@@ -130,12 +137,10 @@ links = []
 agencies = []
 
 for card in soup.find_all('h2', class_='usa-card__heading'):
-
     title_tag = card.find('a')
     if title_tag:
         title = title_tag.get_text(strip=True)
-        link = url + title_tag['href']  
-
+        link = base_url + title_tag['href']  
         titles.append(title)
         links.append(link)
     else:
@@ -161,11 +166,11 @@ for card in soup.find_all('h2', class_='usa-card__heading'):
         action_soup = BeautifulSoup(action_response.text, 'html.parser')
         
         agency = None
-        for p_tag in action_soup.find_all('p'):
-            text = p_tag.get_text(strip=True)
-            if "U.S. Attorney’s Office" in text or "District" in text or "Office" in text:
-                agency = text
-                break  
+        agency_list = action_soup.find('ul', class_='usa-list usa-list--unstyled margin-y-2')
+        if agency_list:
+            li_tags = agency_list.find_all('li')
+            if len(li_tags) > 1:
+                agency = li_tags[1].get_text(strip=True)
         
         agencies.append(agency)
         
@@ -183,6 +188,7 @@ data = {
 df = pd.DataFrame(data)
 
 print(df.head())
+
 ```
 ## Step 2: Making the scraper dynamic
 
