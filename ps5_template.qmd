@@ -178,17 +178,14 @@ for card in soup.find_all('h2', class_='usa-card__heading'):
     else:
         agencies.append(None)
 
-data = {
+enforcement_df = pd.DataFrame({
     'Title': titles,
     'Date': dates,
     'Category': categories,
     'Link': links,
     'Agency': agencies
-}
-df = pd.DataFrame(data)
-
-print(df.head())
-
+})
+print(enforcement_df.head())
 ```
 ## Step 2: Making the scraper dynamic
 
@@ -236,23 +233,252 @@ print(df.head())
 ### 1. Map by State (PARTNER 1)
 
 ```{python}
+state_actions = enforcement_df[enforcement_df['Agency'].str.contains("State of", na=False)]
+state_actions['State'] = state_actions['Agency'].str.extract(r"State of\s+(.+)")  
 
+state_counts = state_actions['State'].value_counts().reset_index()
+state_counts.columns = ['State', 'Enforcement Actions']
+
+state_shapefile = gpd.read_file("/Users/reginahou/Downloads/cb_2018_us_state_500k/cb_2018_us_state_500k.shp")
+
+state_choropleth = state_shapefile.merge(state_counts, left_on="NAME", right_on="State", how="left")
+state_choropleth['Enforcement Actions'] = state_choropleth['Enforcement Actions'].fillna(0) 
+
+fig, ax = plt.subplots(1, 1, figsize=(16, 10))
+state_choropleth.plot(column='Enforcement Actions', cmap='Blues', linewidth=0.8, ax=ax, edgecolor='0.8', legend=True)
+ax.set_title("Number of State-Level Enforcement Actions by State")
+plt.show()
 ```
-
 
 ### 2. Map by District (PARTNER 2)
 
 ```{python}
+# Step 1: Filter and clean district-level actions
+district_actions = enforcement_df[enforcement_df['Agency'].str.contains("District", na=False)]
+district_actions['District'] = district_actions['Agency'].str.extract(r"(.*District.*)")  # Extract district names
 
+# Step 2: Aggregate counts by district
+district_counts = district_actions['District'].value_counts().reset_index()
+district_counts.columns = ['District_Name', 'Enforcement Actions']
+
+# Step 3: Load US Attorney District shapefile and merge with enforcement counts
+district_shapefile = gpd.read_file("'/Users/reginahou/Downloads/US Attorney Districts Shapefile simplified_20241109/geo_export_844e8033-c828-4314-9c9f-db0db1b3bf08.shp'")  # Replace with actual path
+district_choropleth = district_shapefile.merge(district_counts, on='District_Name', how='left')
+district_choropleth['Enforcement Actions'] = district_choropleth['Enforcement Actions'].fillna(0)  # Fill missing values with 0
+
+# Step 4: Plot the choropleth map by district
+fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+district_choropleth.plot(column='Enforcement Actions', cmap='Reds', linewidth=0.8, ax=ax, edgecolor='0.8', legend=True)
+ax.set_title("Number of US Attorney District-Level Enforcement Actions")
+plt.show()
+`
+
+```
+
+```{python}
+import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+
+# Load ZIP code-level population data
+population_data = pd.read_csv("/Users/reginahou/Downloads/DECENNIALDHC2020.P1_2024-11-09T003410/DECENNIALDHC2020.P1-Data.csv")
+
+# Rename columns in the population data for consistency
+population_data = population_data.rename(columns={'GEO_ID': 'ZIP Code', 'P1_001N': 'Population'})  # Adjust column names if necessary
+
+# Load ZIP code shapefile and rename the ZIP code column
+zip_shapefile = gpd.read_file("/Users/reginahou/Downloads/cb_2018_us_state_500k/cb_2018_us_state_500k.shp")  # Replace with the actual path to your ZIP code shapefile
+zip_shapefile = zip_shapefile.rename(columns={'GEOID': 'ZIP Code'})  # Adjust column name if necessary
+
+# Merge ZIP code shapefile with population data on 'ZIP Code'
+zip_population = zip_shapefile.merge(population_data, on="ZIP Code", how="left")
+
+# Load US Attorney District shapefile
+district_shapefile = gpd.read_file("/Users/reginahou/Downloads/US Attorney Districts Shapefile simplified_20241109/geo_export_844e8033-c828-4314-9c9f-db0db1b3bf08.shp")
+
+# Inspect district shap
+
+```
+
+```{python}
+print(zip_district.columns)
+```
+```{python}
+import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+
+# Load ZIP code-level population data
+population_data = pd.read_csv("/Users/reginahou/Downloads/DECENNIALDHC2020.P1_2024-11-09T003410/DECENNIALDHC2020.P1-Data.csv")
+
+# Rename columns in the population data for consistency
+population_data = population_data.rename(columns={'GEO_ID': 'ZIP Code', 'P1_001N': 'Population'})  # Adjust column names if necessary
+
+# Load ZIP code shapefile and rename the ZIP code column
+zip_shapefile = gpd.read_file("/Users/reginahou/Downloads/cb_2018_us_state_500k/cb_2018_us_state_500k.shp")   # Replace with the actual path to your ZIP code shapefile
+zip_shapefile = zip_shapefile.rename(columns={'GEOID': 'ZIP Code'})  # Adjust column name if necessary
+
+# Merge ZIP code shapefile with population data on 'ZIP Code'
+zip_population = zip_shapefile.merge(population_data, on="ZIP Code", how="left")
+
+# Load US Attorney District shapefile
+district_shapefile = gpd.read_file("/Users/reginahou/Downloads/US Attorney Districts Shapefile simplified_20241109/geo_export_844e8033-c828-4314-9c9f-db0db1b3bf08.shp")
+
+print(district_shapefile.columns)
+
+# Rename the district name column if necessary
+# For example, if the district name column is 'district', rename it to 'District_Name'
+# district_shapefile = district_shapefile.rename(columns={'district': 'District_Name'})
+
+# Conduct a spatial join to link each ZIP code area to a district
+zip_district = gpd.sjoin(zip_population, district_shapefile, how="left", predicate="intersects")
+
+district_shapefile = district_shapefile.rename(columns={'district': 'District_Name'})  # Update as per your actual column name
+
+# Conduct the spatial join
+zip_district = gpd.sjoin(zip_population, district_shapefile, how="left", predicate="intersects")
+
+# Aggregate population by district using the correct column name
+# Aggregate population by district using the correct column name
+district_population = zip_district.groupby('district_n')['Population'].sum().reset_index()
+district_population.columns = ['District_Name', 'Population']  # Rename for consistency
+
+# Load enforcement actions data (assuming it has 'District_Name' and 'Date' columns)
+# Load enforcement actions data (assuming it has 'District_Name' and 'Date' columns)
+enforcement_df = pd.read_csv("/path/to/your/enforcement_data.csv")  # Replace with the actual path to your enforcement data
+enforcement_df['Date'] = pd.to_datetime(enforcement_df['Date'])
+
+# Filter enforcement actions since January 2021
+enforcement_df = enforcement_df[enforcement_df['Date'] >= '2021-01-01']
+
+# Aggregate enforcement actions by district
+enforcement_counts = enforcement_df.groupby('District_Name').size().reset_index(name='Enforcement Actions')
+
+# Merge population and enforcement data by district
+district_data = district_population.merge(enforcement_counts, on='District_Name', how='left')
+district_data['Enforcement Actions'] = district_data['Enforcement Actions'].fillna(0)
+
+# Calculate the ratio of enforcement actions per population
+district_data['Enforcement Ratio'] = district_data['Enforcement Actions'] / district_data['Population']
+
+# Merge with district shapefile for mapping
+district_choropleth = district_shapefile.merge(district_data, left_on='district_n', right_on='District_Name', how='left')
+
+# Plot the ratio of enforcement actions per district
+fig, ax = plt.subplots(1, 1, figsize=(16, 10))
+district_choropleth.plot(column='Enforcement Ratio', cmap='Reds', linewidth=0.8, ax=ax, edgecolor='0.8', legend=True)
+ax.set_title("Ratio of Enforcement Actions per Population by US Attorney District")
+plt.show()
+
+```
+
+```{python}
+district_actions = enforcement_df[enforcement_df['Agency'].str.contains("District", na=False)]
+district_actions['District'] = district_actions['Agency'].str.extract(r"(.*District.*)")  # Extract district names
+
+# Step 2: Aggregate counts by district
+district_counts = district_actions['District'].value_counts().reset_index()
+district_counts.columns = ['District_Name', 'Enforcement Actions']
+
+# Step 3: Load US Attorney District shapefile
+district_shapefile = gpd.read_file("/Users/reginahou/Downloads/US Attorney Districts Shapefile simplified_20241109/geo_export_844e8033-c828-4314-9c9f-db0db1b3bf08.shp")
+
+# Ensure CRS compatibility for spatial join (if needed)
+# Uncomment if ZIP code shapefile has a different CRS
+# zip_population = zip_population.to_crs(district_shapefile.crs)
+
+# Step 4: Spatial join (ZIP code shapefile with district shapefile)
+zip_population = gpd.read_file("/path/to/your/zip_code_shapefile.shp")  # Load your ZIP code shapefile
+zip_district = gpd.sjoin(zip_population, district_shapefile, how="left", predicate="intersects")
+
+# Step 5: Aggregate population by district using the column found in zip_district
+district_population = zip_district.groupby('district_n')['Population'].sum().reset_index()
+district_population.columns = ['District_Name', 'Population']  # Rename for consistency
+
+# Step 6: Merge population and enforcement data by district
+district_data = district_population.merge(district_counts, on='District_Name', how='left')
+district_data['Enforcement Actions'] = district_data['Enforcement Actions'].fillna(0)
+
+# Step 7: Calculate the ratio of enforcement actions per population
+district_data['Enforcement Ratio'] = district_data['Enforcement Actions'] / district_data['Population']
+
+# Step 8: Merge with district shapefile for mapping
+district_choropleth = district_shapefile.merge(district_data, left_on='district_n', right_on='District_Name', how='left')
+
+# Step 9: Plot the ratio of enforcement actions per district
+fig, ax = plt.subplots(1, 1, figsize=(16, 10))
+district_choropleth.plot(column='Enforcement Ratio', cmap='Reds', linewidth=0.8, ax=ax, edgecolor='0.8', legend=True)
+ax.set_title("Ratio of Enforcement Actions per Population by US Attorney District")
+plt.show()
 ```
 
 ## Extra Credit
 
 ### 1. Merge zip code shapefile with population
 ```{python}
+population_data = pd.read_csv("/Users/reginahou/Downloads/DECENNIALDHC2020.P1_2024-11-09T003410/DECENNIALDHC2020.P1-Data.csv")  # Replace with actual path to CSV file
+population_data = population_data.rename(columns={'GEO_ID': 'ZIP Code', 'P1_001N': 'Population'})  # Adjust column names if necessary
+
+zip_shapefile = gpd.read_file("/Users/reginahou/Downloads/cb_2018_us_state_500k/cb_2018_us_state_500k.shp")  # Replace with actual path to ZIP code shapefile
+zip_shapefile = zip_shapefile.rename(columns={'GEOID': 'ZIP Code'})  # Ensure ZIP code field matches population data
+
+zip_population = zip_shapefile.merge(population_data, on="ZIP Code", how="left")
+
+# Load enforcement actions data (assuming it has 'ZIP Code' and 'Date' columns)
+enforcement_df = pd.read_csv("/Users/reginahou/Downloads/US_Attorney_Districts_Shapefile_simplified_20241108.csv")  
+
+enforcement_df['Date'] = pd.to_datetime(enforcement_df['Date'])
+enforcement_df = enforcement_df[enforcement_df['Date'] >= '2021-01-01']  # Filter for actions since Jan 2021
+```
+
+```{python}
+# Load enforcement actions data
+enforcement_df = pd.read_csv("/Users/reginahou/Downloads/US_Attorney_Districts_Shapefile_simplified_20241108.csv")
+
+# Check column names
+print(enforcement_df.columns)
+
 
 ```
 
+```{python}
+import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+
+# Load ZIP code population data
+population_data = pd.read_csv("/Users/reginahou/Downloads/DECENNIALDHC2020.P1_2024-11-09T003410/DECENNIALDHC2020.P1-Data.csv")
+population_data = population_data.rename(columns={'GEO_ID': 'ZIP Code', 'P1_001N': 'Population'})  # Adjust column names
+
+# Load ZIP code shapefile
+zip_shapefile = gpd.read_file("/path/to/zip_code_shapefile.shp")  # Replace with actual path
+zip_shapefile = zip_shapefile.rename(columns={'GEOID': 'ZIP Code'})  # Rename ZIP code column to match
+
+# Merge population data with ZIP code shapefile
+zip_population = zip_shapefile.merge(population_data, on="ZIP Code", how="left")
+
+# Load enforcement actions data (assuming it has 'ZIP Code' and 'Date' columns)
+enforcement_df = pd.read_csv("/path/to/enforcement_data.csv")  # Replace with actual path
+enforcement_df['Date'] = pd.to_datetime(enforcement_df['Date'])
+enforcement_df = enforcement_df[enforcement_df['Date'] >= '2021-01-01']  # Filter for actions since Jan 2021
+
+# Aggregate enforcement actions by ZIP code
+enforcement_counts = enforcement_df.groupby('ZIP Code').size().reset_index(name='Enforcement Actions')
+
+# Merge enforcement actions with ZIP population data by ZIP Code
+zip_data = zip_population.merge(enforcement_counts, on='ZIP Code', how='left')
+zip_data['Enforcement Actions'] = zip_data['Enforcement Actions'].fillna(0)
+
+# Calculate the ratio of enforcement actions per population
+zip_data['Enforcement Ratio'] = zip_data['Enforcement Actions'] / zip_data['Population']
+
+# Plot the ratio of enforcement actions per ZIP code
+fig, ax = plt.subplots(1, 1, figsize=(16, 10))
+zip_data.plot(column='Enforcement Ratio', cmap='Reds', linewidth=0.8, ax=ax, edgecolor='0.8', legend=True)
+ax.set_title("Ratio of Enforcement Actions per Population by ZIP Code")
+plt.show()
+
+```
 ### 2. Conduct spatial join
 ```{python}
 
